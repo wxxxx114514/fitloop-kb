@@ -1,0 +1,71 @@
+# fitloop-kb 语料清单
+# 只登记【实测可达】的来源。未验证的一律放 to_locate，不许编 URL。
+version: 1
+updated: 2026-10-21
+
+sources:
+  - id: who-pa-2020
+    title: WHO Guidelines on physical activity and sedentary behaviour
+    org: WHO
+    year: 2020
+    kind: html
+    url: https://www.who.int/publications/i/item/9789240015128
+    license: CC BY-NC-SA 3.0 IGO
+    topics: [training_volume, sedentary]
+    min_bytes: 200000
+    expect_keywords: ["150", "300 minutes"]
+    status: pending
+
+  - id: issn-protein-2017
+    title: ISSN Position Stand - Protein and exercise
+    org: ISSN
+    year: 2017
+    kind: html
+    url: https://jissn.biomedcentral.com/articles/10.1186/s12970-017-0177-8
+    license: CC BY 4.0
+    topics: [protein_intake]
+    min_bytes: 80000
+    expect_keywords: ["protein", "g/kg"]
+    status: pending
+
+  - id: cns-notice-sample
+    title: 中国居民膳食指南 系列研究科学会议通知（拿它验证 PDF 通道）
+    org: 中国营养学会
+    year: 2026
+    kind: pdf
+    url: https://www.cnsoc.org/files/@CmsXh_df73be90-6e9f-48bf-859e-851ac849f9e0.pdf
+    license: 仅用于本项目研究，不作再分发
+    topics: [meta]
+    min_bytes: 100000
+    expect_keywords: ["膳食指南"]
+    status: pending
+
+  - id: cns-guideline-2022
+    title: 中国居民膳食指南（2022）平衡膳食八准则（Markdown 转录）
+    org: 中国营养学会（第三方转录）
+    year: 2022
+    kind: md
+    url: https://raw.githubusercontent.com/ziping46/Dietary-Guidelines-for-Chinese-residents-2020/main/%E4%B8%AD%E5%9B%BD%E5%B1%85%E6%B0%91%E8%86%B3%E9%A3%9F%E6%8C%87%E5%8D%97(2022).md
+    license: 官方出版物，仅本项目研究使用，不转售
+    topics: [protein_intake, calorie_deficit, food_choice]
+    min_bytes: 20000
+    expect_keywords: ["膳食指南", "蛋白质"]
+    caveat: 第三方转录，数值需与官方页核对；核对前不引用具体页码
+    status: pending
+
+# 已知需要、但还没拿到可下载地址的。拿到之前不进 sources，避免构建带着空 chunk 跑。
+to_locate:
+  - 中国居民膳食指南（2022）正文 PDF 或官方全文页
+  - 中国居民膳食营养素参考摄入量（DRIs 2023）
+  - 中国食物成分表 第6版（优先找结构化数据，找不到就自建 200 条）
+  - ISSN 减脂期饮食立场声明（Position Stand - Diets and body composition）
+  - ACSM 运动减重相关立场声明
+
+# 已排除
+excluded:
+  - name: Frontiers
+    why: 本机 SSL 证书被拦，抓不动
+  - name: 商业出版社全文
+    why: 付费墙
+  - name: ISSN PDF 端点（counter/pdf 与 link.springer）
+    why: 实测 SSL EOF；HTML 全文可用，改走 HTML

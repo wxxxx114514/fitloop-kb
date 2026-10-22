@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+# 语料原文、OCR 结果、坐标框：商业出版物，只在本机建索引，不进仓库
+corpus/raw/
+corpus/boxes/
+corpus/manifest.json
+corpus/emb_*.npy
+corpus/*.log
+# 模型缓存（本机下载，不进仓库）
+.models/
+.cache/
+fastembed_cache/
+kb.db

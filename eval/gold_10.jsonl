@@ -1,0 +1,10 @@
+{"q": "成年人每天应该吃多少蔬菜", "expect_pages": [10, 11, 19], "type": "lookup", "answer_pattern": "\\d+\\s*[~-]\\s*\\d+\\s*g"}
+{"q": "每天吃盐不超过多少", "expect_pages": [11, 109, 110], "type": "lookup", "answer_pattern": "不超过\\s*\\d\\s*g|食盐不超过"}
+{"q": "每天烹调油吃多少", "expect_pages": [11, 18, 19], "type": "lookup", "answer_pattern": "\\d+\\s*[~-]\\s*\\d+\\s*g"}
+{"q": "每天应该吃多少种食物", "expect_pages": [20], "type": "lookup", "answer_pattern": "12\\s*种以上|25\\s*种以上"}
+{"q": "全谷物和杂豆每天吃多少", "expect_pages": [10, 11, 18], "type": "lookup", "answer_pattern": "\\d+\\s*[~-]\\s*\\d+\\s*g"}
+{"q": "每天应该喝多少水", "expect_pages": [114, 137, 139], "type": "lookup", "answer_pattern": "\\d+\\s*[~-]\\s*\\d+\\s*ml|毫升"}
+{"q": "每天奶类摄入多少", "expect_pages": [10, 11, 19], "type": "lookup", "answer_pattern": "\\d+\\s*[~-]\\s*\\d+\\s*g"}
+{"q": "每天大豆及坚果吃多少", "expect_pages": [10, 11, 19], "type": "lookup", "answer_pattern": "\\d+\\s*[~-]\\s*\\d+\\s*g"}
+{"q": "成年人每周应该运动多少分钟", "expect_pages": [43, 48, 50], "type": "lookup", "answer_pattern": "\\d+\\s*[~-]\\s*\\d+\\s*分钟"}
+{"q": "维生素D每天补多少国际单位", "expect_pages": [], "type": "refuse", "answer_pattern": "国际单位|IU"}
