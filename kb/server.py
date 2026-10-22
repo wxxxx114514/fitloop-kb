@@ -6,6 +6,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mcp.server.mcpserver import MCPServer
 from kb.retrieve import BM25, load
+from kb.query import expand
+
+_RERANK = None
+
+def _reranker():
+    """重排器可选：模型文件不在就退回纯 BM25。"""
+    global _RERANK
+    if _RERANK is None:
+        try:
+            from kb.rerank import Reranker
+            _RERANK = Reranker()
+        except Exception:
+            _RERANK = False
+    return _RERANK or None
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB = os.path.join(ROOT, "kb.db")
@@ -27,7 +41,15 @@ def _idx():
 def search_guideline(query: str, k: int = 5) -> dict:
     """按自然语言查指南原文。返回带 source/page 的片段；没有就返回空。"""
     rows, bm = _idx()
-    hits = [(s, i) for s, i in bm.score(query)[:k] if s >= MIN_SCORE]
+    q = expand(query)                      # 口语 → 指南用词
+    cand = [(s, i) for s, i in bm.score(q)[:30] if s >= MIN_SCORE]
+    rr = _reranker()
+    if rr and cand:
+        scores = rr.scores(q, [rows[i]["text"] for _, i in cand])
+        order = sorted(range(len(cand)), key=lambda j: -scores[j])
+        hits = [cand[j] for j in order][:k]
+    else:
+        hits = cand[:k]
     return {
         "results": [
             {"chunk_id": rows[i]["id"], "source": rows[i]["source"], "page": rows[i]["page"],
