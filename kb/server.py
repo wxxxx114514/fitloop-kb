@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mcp.server.mcpserver import MCPServer
 from kb.retrieve import BM25, load
 from kb.query import expand
+from kb.sources import title_of
 
 _RERANK = None
 
@@ -52,8 +53,9 @@ def search_guideline(query: str, k: int = 5) -> dict:
         hits = cand[:k]
     return {
         "results": [
-            {"chunk_id": rows[i]["id"], "source": rows[i]["source"], "page": rows[i]["page"],
-             "text": rows[i]["text"], "score": round(s, 2)}
+            {"chunk_id": rows[i]["id"], "source": rows[i]["source"],
+             "title": title_of(rows[i]["source"]),        # 人名可读的书名，由 kb 提供
+             "page": rows[i]["page"], "text": rows[i]["text"], "score": round(s, 2)}
             for s, i in hits
         ],
         "note": None if hits else "语料里没有命中，调用方应拒答而不是让模型编",
