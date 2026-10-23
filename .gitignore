@@ -12,3 +12,5 @@ corpus/*.log
 .cache/
 fastembed_cache/
 kb.db
+# 讲解文档只留本地，不进仓库
+LEARN.md
