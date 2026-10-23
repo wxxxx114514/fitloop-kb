@@ -29,16 +29,18 @@ MIN_SCORE = 3.0          # 低于这个就当作"语料里没有"，先拍的，
 def _facts():
     """结构化事实表：由 build/extract_all.py 离线生成，值都经过原文校验。"""
     con = sqlite3.connect(DB)
-    rows = con.execute("SELECT chunk_id, page, subject, value, unit, alias FROM facts").fetchall()
+    rows = con.execute("SELECT chunk_id, page, subject, value, unit, alias, "
+                       "COALESCE(scope,'day'), per_day FROM facts").fetchall()
     con.close()
     out = []
-    for cid, page, subj, val, unit, alias in rows:
+    for cid, page, subj, val, unit, alias, scope, per_day in rows:
         try:
             al = json.loads(alias) if alias else []
         except Exception:
             al = []
         out.append({"chunk_id": cid, "page": page, "subject": subj, "value": val,
-                    "unit": unit or "", "names": [subj] + al})
+                    "unit": unit or "", "names": [subj] + al,
+                    "scope": scope, "per_day": per_day})
     return out
 
 
@@ -64,19 +66,67 @@ def facts_match(query, limit=3):
         except Exception:
             _FACTS = []
     q = query or ""
-    hits, seen = [], set()
+    scored, seen = [], set()
     for f in _FACTS:
         if not any(ch.isdigit() for ch in (f["value"] or "")):
             continue
         # 单字名只放行常见的食物/营养单字，避免「水」在「水果」里误命中
-        if not any(n and ((len(n) >= 2) or (n in SINGLE_OK)) and n in q for n in f["names"]):
+        name = max((n for n in f["names"] if n and ((len(n) >= 2) or (n in SINGLE_OK)) and n in q),
+                   key=len, default=None)
+        if not name:
             continue
         key = (f["subject"], f["value"], f["unit"])
         if key in seen:
             continue
+        # 关键：还要看「问的是不是这个指标」——否则「身体活动」会把所有运动题都吃掉
+        metric = f.get("metric") or ""
+        m_hit = sum(1 for i in range(len(metric) - 1) if metric[i:i + 2] in q)
+        # 问「一天」时优先每日量，问「一周」时优先每周量
+        want_week = any(w in q for w in ("一周", "每周", "周吃", "周摄"))
+        want_day = any(w in q for w in ("一天", "每天", "每日", "一天吃"))
+        sc = f.get("scope") or "day"
+        scope_bonus = 6 if ((want_week and sc == "week") or (want_day and sc == "day")) else 0
+        if metric and m_hit == 0:
+            score = len(name)                      # 指标完全对不上，只作低分候选
+        else:
+            score = 10 + len(name) + m_hit * 4 + scope_bonus
         seen.add(key)
-        hits.append(f)
-    return hits[:limit]
+        scored.append((score, f))
+    scored.sort(key=lambda x: -x[0])
+    return [f for s_, f in scored if s_ >= 10][:limit] or [f for _, f in scored][:limit]
+
+
+VERIFY_SYS = """判断候选事实里，哪些对回答用户的问题**有帮助**。
+只输出 JSON：{"keep":[编号]}；一条都没帮助就返回 {"keep":[]}。
+规则：
+- 部分回答也算（问"几点吃"，给出时间区间就保留）
+- 同一个数字但答的是别的问题（问"隔夜水"，给的是"每天喝多少水"）→ 不保留
+- 宁可保留一条，也不要因为不完美而全丢
+"""
+
+def verify(query, hits, timeout=8.0):
+    """最后一道筛：让模型判断候选是否真的回答了问题。失败就原样返回，不放行也不误杀。"""
+    if not hits:
+        return hits
+    try:
+        from kb.rewrite import _key
+        import httpx
+        key, base = _key()
+        if not key:
+            return hits
+        listing = "\n".join(f"{i+1}. {h['subject']}：{h['value']}{h['unit']}" for i, h in enumerate(hits))
+        r = httpx.post(base.rstrip("/") + "/chat/completions",
+                       headers={"Authorization": "Bearer " + key},
+                       json={"model": "deepseek-chat", "temperature": 0,
+                             "response_format": {"type": "json_object"},
+                             "messages": [{"role": "system", "content": VERIFY_SYS},
+                                          {"role": "user", "content": f"问题：{query}\n候选：\n{listing}"}]},
+                       timeout=timeout)
+        keep = json.loads(r.json()["choices"][0]["message"]["content"]).get("keep") or []
+        kept = [hits[i - 1] for i in keep if isinstance(i, int) and 1 <= i <= len(hits)]
+        return kept
+    except Exception:
+        return hits
 
 
 mcp = MCPServer("fitloop-kb")
@@ -91,7 +141,7 @@ def _idx():
     return _rows, _bm25
 
 
-def search(query, k=5):
+def search(query, k=5, verify_on=True):
     """三层检索的唯一实现：别名 → 改写 → BM25+重排。工具和评测都走这里。"""
     if any(k in (query or "") for k in MEDICAL):
         return {"results": [],
@@ -101,11 +151,17 @@ def search(query, k=5):
     q = expand(query)                      # 口语 → 指南用词
 
     def show(h):
-        """value 里已经带单位就不要再拼一次（"150分钟" + "分钟"）。"""
+        """value 里已经带单位就不要再拼一次；每周量附每日当量。"""
         v, u = str(h["value"]), str(h["unit"] or "")
-        if u and v.endswith(u):
-            return f"{h['subject']}：{v}"
-        return f"{h['subject']}：{v}{u}"
+        txt = f"{v}" if (u and v.endswith(u)) else f"{v}{u}"
+        extra = ""
+        if h.get("scope") == "week":
+            per = h.get("per_day")
+            extra = f"（约 {per}/天）" if per else "（每周）"
+        elif h.get("scope") == "month":
+            per = h.get("per_day")
+            extra = f"（约 {per}/天）" if per else "（每月）"
+        return f"{h['subject']}：{txt}{extra}"
 
     def as_results(hs, via):
         return {"results": [{"chunk_id": h["chunk_id"], "source": "cns-book-2022",
@@ -116,6 +172,10 @@ def search(query, k=5):
     # 第一层：别名/主体精确匹配（纯字符串，毫秒级，不调模型）
     hs = facts_match(query, limit=k)
     if hs:
+        if verify_on:
+            hs = verify(query, hs)
+            if not hs:
+                return {"results": [], "note": "候选都对不上问题，kb 不作答"}
         return as_results(hs, "alias")
 
     # 第二层：把口语翻成书中用词再试一次（单次无状态调用）
@@ -124,6 +184,10 @@ def search(query, k=5):
         for t in _rewrite(query)[:3]:
             hs = facts_match(t, limit=k)
             if hs:
+                if verify_on:
+                    hs = verify(query, hs)
+                    if not hs:
+                        return {"results": [], "note": "候选都对不上问题，kb 不作答"}
                 return as_results(hs, "rewrite")
     except Exception:
         pass
