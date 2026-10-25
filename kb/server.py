@@ -51,6 +51,24 @@ SINGLE_OK = set("盐油水菜奶鱼蛋肉糖酒茶钙铁锌")   # 允许当作�
 MEDICAL = ("疼", "痛", "受伤", "扭", "拉伤", "肿", "麻", "骨", "头晕", "发烧",
            "骨折", "手术", "药", "怀孕", "糖尿病", "高血压")
 
+_VEC = None
+
+def _vectors():
+    """语料向量（离线算好存盘）。没有文件就返回 None，回落到纯 BM25。"""
+    global _VEC
+    if _VEC is None:
+        try:
+            import numpy as np
+            p = os.path.join(ROOT, "corpus", "emb_609.npy")
+            ids = os.path.join(ROOT, "corpus", "emb_609_ids.json")
+            if os.path.exists(p) and os.path.exists(ids):
+                _VEC = (np.load(p), json.load(open(ids, encoding="utf-8")))
+            else:
+                _VEC = False
+        except Exception:
+            _VEC = False
+    return _VEC or None
+
 _FACTS = None
 
 def facts_match(query, limit=3):
@@ -192,8 +210,36 @@ def search(query, k=5, verify_on=True):
     except Exception:
         pass
 
-    # 第三层：原来的 BM25 + 重排
-    cand = [(s, i) for s, i in bm.score(q)[:30] if s >= MIN_SCORE]
+    # 第三层：BM25 + 向量 双路召回，RRF 融合后再重排
+    bm_scores = bm.score(q)
+    bm_hits = [i for _, i in bm_scores[:30]]
+    order = list(bm_hits)
+    used_vec = False
+    vec = _vectors()
+    if vec:
+        try:
+            import numpy as np
+            from kb.embed import encode
+            V, ids = vec
+            pos = {r["id"]: k for k, r in enumerate(rows)}
+            qv = encode([q])[0]
+            cos = V @ qv
+            # 余弦低于阈值的不算召回，否则向量会把"毫无关系"的块也带进来，拒答就失效了
+            ranked = [(float(cos[k]), ids[k]) for k in np.argsort(-cos)[:30] if ids[k] in pos]
+            near = [pos[cid] for sc, cid in ranked if sc >= 0.58]
+            if not near and (not bm_scores or bm_scores[0][0] < MIN_SCORE):
+                return {"results": [], "note": "语料里没有相关块"}
+            fused = {}
+            for rank, i in enumerate(bm_hits):
+                fused[i] = fused.get(i, 0.0) + 1.0 / (60 + rank + 1)
+            for rank, i in enumerate(near):
+                fused[i] = fused.get(i, 0.0) + 1.0 / (60 + rank + 1)
+            order = [i for i, _ in sorted(fused.items(), key=lambda x: -x[1])]
+            used_vec = bool(near)
+        except Exception:
+            order = bm_hits
+    cand = [(1.0, i) for i in order[:30]]
+
     rr = _reranker()
     if rr and cand:
         scores = rr.scores(q, [rows[i]["text"] for _, i in cand])
@@ -206,7 +252,7 @@ def search(query, k=5, verify_on=True):
             {"chunk_id": rows[i]["id"], "source": rows[i]["source"],
              "title": title_of(rows[i]["source"]),        # 人名可读的书名，由 kb 提供
              "page": rows[i]["page"], "text": rows[i]["text"], "score": round(s, 2),
-             "via": "rerank" if rr else "bm25"}
+             "via": ("hybrid+" if used_vec else "") + ("rerank" if rr else "bm25")}
             for s, i in hits
         ],
         "note": None if hits else "语料里没有命中，调用方应拒答而不是让模型编",
